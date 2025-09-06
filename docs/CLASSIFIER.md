@@ -1,22 +1,23 @@
-# Classifier Details
+# Classifier Subsystem
 
-## Purpose
-Determines whether user input represents a shell command or a natural-language prompt requiring AI planning through structured JSON communication.
+## 🎯 Purpose
 
-## Implementation
+The classifier subsystem employs advanced machine learning to accurately discern user input types: shell commands versus natural language prompts requiring AI workflow orchestration. Communication occurs via robust JSON protocols ensuring type-safe, error-resilient Rust-Python interoperability.
 
-### Embedded Python
-The classification system implemented via PyO3 integration provides sophisticated natural language processing capabilities. The classification process follows this sequential logic:
+## 🧠 Implementation Architecture
 
-1. Input preprocessing: Preserves internal whitespace while removing only leading and trailing whitespace. Empty inputs default to shell classification.
-2. Command recognition: Evaluates whether the first token matches a predefined set of shell command verbs using pattern matching algorithms.
-3. Natural language detection: Identifies conversational markers ("please", "how do I", question patterns, etc.) that indicate natural language queries.
-4. Machine learning classification: For inputs not definitively categorized by steps 2-3, employs trained ML models to distinguish between shell commands and natural language prompts.
-5. JSON response generation: Returns structured classification results with confidence scores and reasoning.
+### Embedded Python Integration
+Utilizing PyO3 for seamless Python embedding, the classification pipeline implements a multi-stage analysis:
 
-The system communicates exclusively through JSON interfaces, ensuring reliable data exchange between Rust and Python components while maintaining type safety and error handling.
+1. **Input Sanitization**: Preserves internal whitespace, strips only leading/trailing spaces. Empty inputs default to shell classification.
+2. **Command Pattern Matching**: Evaluates initial tokens against curated shell verb patterns using optimized algorithms.
+3. **Natural Language Detection**: Identifies conversational cues ("please", "how do I", interrogative structures) indicating NL queries.
+4. **ML Classification**: For ambiguous inputs, deploys trained models to differentiate shell vs. NL intents.
+5. **Structured Response**: Generates JSON outputs with confidence metrics and explanatory reasoning.
 
-## JSON Communication Protocol
+All inter-component communication adheres to strict JSON schemas, guaranteeing reliability and type safety.
+
+## 📡 JSON Communication Protocol
 
 ### Classification Request
 ```json
@@ -42,8 +43,9 @@ The system communicates exclusively through JSON interfaces, ensuring reliable d
 }
 ```
 
-## Future Enhancements
-- Context-aware classification using conversation history
-- User preference learning and adaptation
-- Confidence threshold configuration
-- Custom classification rules via configuration
+## 🚀 Future Enhancements
+
+- **Contextual Awareness**: Leverage conversation history for adaptive classification.
+- **User Learning**: Implement preference adaptation and personalization.
+- **Configurable Thresholds**: Dynamic confidence tuning via user settings.
+- **Custom Rules**: Extensible classification logic through configuration files.

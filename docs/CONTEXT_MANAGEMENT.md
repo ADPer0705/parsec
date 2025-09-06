@@ -1,19 +1,20 @@
 # Context Management & History
 
-## Overview
-Parsec manages user interaction through a hierarchical context system: **Session → Conversation → Steps**. This document specifies the context management strategy, history preservation, and prompt context injection for maintaining coherent AI-assisted workflows across extended interactions.
+## 🔍 Overview
 
-## Hierarchical Structure
+Parsec implements a sophisticated hierarchical context system: **Session → Conversation → Steps**, enabling coherent AI-assisted workflows across extended interactions. This document details context management, history preservation, and intelligent prompt context injection for seamless multi-step AI orchestration.
+
+## 🏗️ Hierarchical Structure
 
 ### Session
-The top-level container representing a user's continuous interaction with Parsec.
+The foundational container for user interactions, representing continuous engagement with Parsec.
 
 ```rust
 pub struct Session {
-    pub id: SessionId, // ULID for chronological ordering
+    pub id: SessionId, // ULID for temporal ordering
     pub created_at: DateTime<Utc>,
     pub last_active: DateTime<Utc>,
-    pub conversations: Vec<ConversationId>, // only for prompt-classified inputs
+    pub conversations: Vec<ConversationId>, // exclusive to prompt-classified inputs
     pub command_history: Vec<DirectCommandExecution>, // for shell-classified inputs
     pub global_context: GlobalContext,
     pub settings: SessionSettings,
@@ -36,14 +37,14 @@ pub struct DirectCommandExecution {
 }
 ```
 
-### Conversation (Prompt-Classified Input Only)
-A focused AI-assisted workflow addressing a specific user goal within a session. Only created when user input is classified as a natural language prompt.
+### Conversation (Prompt-Classified Inputs Only)
+A focused AI workflow targeting a specific user objective within a session. Exclusively created for natural language prompts.
 
 ```rust
 pub struct Conversation {
     pub id: ConversationId,
     pub session_id: SessionId,
-    pub name: String, // user-friendly display name
+    pub name: String, // human-readable display name
     pub original_prompt: String,
     pub created_at: DateTime<Utc>,
     pub status: ConversationStatus,
@@ -53,33 +54,33 @@ pub struct Conversation {
 }
 
 pub struct ContextSummary {
-    pub key_achievements: Vec<String>, // major accomplishments from this conversation
-    pub generated_artifacts: Vec<ArtifactInfo>, // files created/modified
+    pub key_achievements: Vec<String>, // major accomplishments
+    pub generated_artifacts: Vec<ArtifactInfo>, // created/modified files
     pub environment_changes: Vec<EnvironmentChange>, // PATH, env vars, etc.
-    pub learned_preferences: HashMap<String, String>, // user patterns observed
+    pub learned_preferences: HashMap<String, String>, // observed patterns
 }
 ```
 
-### Step (Within Conversations Only)
-Individual actionable units within a conversation workflow. Only exists for prompt-classified inputs that generate multi-step workflows.
+### Step (Conversation-Exclusive)
+Individual actionable units within conversation workflows. Exists solely for prompt-classified inputs with multi-step plans.
 
 ```rust
 pub struct WorkflowStepState {
     pub step: WorkflowStep,
     pub status: StepStatus,
     pub command_attempts: Vec<CommandAttempt>,
-    pub context_used: StepContext, // what context was provided to the model
+    pub context_used: StepContext, // context provided to model
     pub artifacts_produced: Vec<ArtifactInfo>,
 }
 ```
 
-## Context Injection Strategy
+## 🎯 Context Injection Strategy
 
-### For Direct Shell Commands (Shell-Classified Input)
-Direct shell commands bypass the conversation system and execute immediately within session context. No additional context injection is needed beyond current environment state.
+### Direct Shell Commands (Shell-Classified)
+Bypass conversation system; execute immediately within session context. No additional context required beyond current environment.
 
-### For Workflow Planning (Prompt-Classified Input)
-When generating the initial workflow plan for prompt-classified input, the model receives:
+### Workflow Planning (Prompt-Classified)
+Initial workflow generation receives:
 
 ```json
 {
@@ -104,8 +105,8 @@ When generating the initial workflow plan for prompt-classified input, the model
 }
 ```
 
-### For Step Command Generation (Within Prompt-Classified Conversations)
-When generating commands for a specific step within a prompt-classified conversation, comprehensive context is provided:
+### Step Command Generation (Within Conversations)
+Comprehensive context for per-step command synthesis:
 
 ```json
 {
@@ -117,7 +118,7 @@ When generating commands for a specific step within a prompt-classified conversa
   "workflow": {
     "steps": [
       {"description": "Create new Cargo project"},
-      {"description": "Initialize git repository"}, 
+      {"description": "Initialize git repository"},
       {"description": "Add CI/CD configuration"},
       {"description": "Create initial commit"}
     ]
@@ -140,52 +141,52 @@ When generating commands for a specific step within a prompt-classified conversa
     "detected_files": ["Cargo.toml", "src/lib.rs"],
     "git_status": "not_a_repository"
   },
-  "error_context": null // populated if retrying after failure
+  "error_context": null // populated on retry
 }
 ```
 
-## History Preservation Levels
+## 📚 History Preservation Tiers
 
-### Session-Level History (All Input Types)
-- Direct shell command executions with results
-- Environment state changes
-- Working directory changes
-- Detected project evolution
+### Session-Level (All Inputs)
+- Direct command executions with results
+- Environment state modifications
+- Working directory updates
+- Project evolution detection
 
-### Conversation-Level Context (Prompt-Classified Only)
-- Complete step execution history
+### Conversation-Level (Prompt-Only)
+- Complete step execution logs
 - All command attempts with outputs
-- Generated artifacts
+- Generated artifacts tracking
 - Workflow completion status
 
-### Cross-Conversation Learning (Prompt-Classified Only)
-- Key achievements from completed conversations
-- Learned user preferences and patterns
+### Cross-Conversation Intelligence (Prompt-Only)
+- Achievements from completed workflows
+- Learned user preferences
 - Common workflow templates
-- Project-specific optimization opportunities
+- Project-specific optimizations
 
-## Context Pruning Strategy
+## 🗂️ Context Pruning Strategy
 
-### Token Limit Management
-When context approaches model token limits:
+### Token Management
+Approaching model limits:
 
-1. **Preserve Core Information:**
-   - Current step description and index
-   - Last 3 successful command executions
+1. **Core Preservation:**
+   - Current step details and index
+   - Last 3 successful executions
    - Current environment state
-   - Any error context
+   - Active error context
 
-2. **Summarize Historical Data:**
-   - Aggregate older step results into achievements
-   - Compress repeated pattern information
-   - Maintain only essential error context
+2. **Historical Summarization:**
+   - Aggregate older results into achievements
+   - Compress repetitive patterns
+   - Retain essential error data
 
-3. **Progressive Truncation:**
-   - Remove oldest non-essential conversation history
-   - Summarize instead of including full command outputs
-   - Preserve step completion status over detailed logs
+3. **Progressive Reduction:**
+   - Remove oldest non-critical history
+   - Summarize vs. full outputs
+   - Prioritize completion status over logs
 
-### Context Relevance Scoring
+### Relevance Scoring
 ```rust
 pub struct ContextItem {
     pub content: String,
@@ -197,42 +198,42 @@ pub struct ContextItem {
 
 pub enum ImportanceLevel {
     Critical,  // Current step, active errors
-    High,      // Recent successes, environment changes
-    Medium,    // Older achievements, learned patterns
-    Low,       // Historical context, repeated patterns
+    High,      // Recent successes, env changes
+    Medium,    // Older achievements, patterns
+    Low,       // Historical, repeated data
 }
 ```
 
-## Cross-Conversation Learning
+## 🤖 Cross-Conversation Learning
 
 ### Pattern Recognition
-Track recurring user patterns across conversations:
-- Preferred command variations (e.g., `ls -la` vs `ll`)
-- Common project setup sequences
-- Frequently used tool combinations
-- Error recovery preferences
+Track recurring patterns:
+- Preferred command styles (`ls -la` vs `ll`)
+- Common setup sequences
+- Tool combination preferences
+- Error recovery strategies
 
 ### Context Sharing
-Enable intelligent context sharing between related conversations:
-- Project-specific settings and preferences
-- Previously established environment configurations
-- Successful command patterns for similar tasks
+Intelligent sharing between related workflows:
+- Project-specific configurations
+- Established environment setups
+- Successful patterns for similar tasks
 
-## Implementation Considerations
+## ⚙️ Implementation Considerations
 
 ### Performance
-- Context serialization/deseriization optimization
-- Lazy loading of historical data
-- Efficient context pruning algorithms
-- Memory usage monitoring for long-running sessions
+- Optimized serialization/deserialization
+- Lazy historical data loading
+- Efficient pruning algorithms
+- Memory monitoring for long sessions
 
-### Privacy and Security
-- Sensitive information detection and redaction
-- Configurable history retention policies
-- Option to exclude certain commands from history
-- Secure storage of context data
+### Privacy & Security
+- Sensitive data detection and masking
+- Configurable retention policies
+- Excludable commands from history
+- Secure context storage
 
-### Recovery and Persistence
+### Recovery & Persistence
 ```rust
 pub trait ContextStore {
     fn save_session(&self, session: &Session) -> Result<(), ContextError>;
@@ -243,19 +244,19 @@ pub trait ContextStore {
 }
 ```
 
-## Usage Examples
+## 💡 Usage Examples
 
-### Starting a New Session
+### New Session Initialization
 ```rust
 let session = Session::new(
     working_directory: "/home/user/projects",
     detected_tools: vec!["git", "cargo", "npm"],
 );
 
-// For shell-classified input - direct execution
+// Shell input - direct execution
 session.execute_direct_command("ls -la");
 
-// For prompt-classified input - create conversation
+// Prompt input - conversation creation
 let conversation = Conversation::new(
     session_id: session.id,
     name: "Rust Web Server Setup",
@@ -263,39 +264,39 @@ let conversation = Conversation::new(
 );
 ```
 
-### Context-Aware Command Generation
-The system automatically provides relevant context to the model:
-- Previous conversation outcomes in the same directory
-- Detected project structure and tooling
-- User preferences learned from similar tasks
-- Current environment state and available tools
+### Context-Aware Generation
+Automatic relevant context provision:
+- Prior outcomes in directory
+- Detected project structure
+- Learned preferences from similar tasks
+- Current environment and tools
 
 ### Cross-Conversation Intelligence
-When a user starts a new conversation in a directory where previous work was completed:
+New conversation in active directory:
 ```
-Previous context found: "Python API Setup" completed 2 hours ago
-Key artifacts: docker-compose.yml, requirements.txt, .env.example
-Applying learned preferences: MIT license, GitHub Actions CI
+Previous context: "Python API Setup" completed 2 hours ago
+Artifacts: docker-compose.yml, requirements.txt, .env.example
+Applied preferences: MIT license, GitHub Actions CI
 ```
 
-## Future Enhancements
+## 🚀 Future Enhancements
 
-### Smart Context Injection
-- Semantic similarity matching for relevant historical context
-- Dynamic context window optimization based on task complexity
-- Predictive context pre-loading for anticipated next steps
+### Smart Injection
+- Semantic similarity for historical relevance
+- Dynamic window optimization by complexity
+- Predictive pre-loading for next steps
 
 ### Collaborative Context
-- Shared context for team environments
-- Project-level context accessible across team members
-- Context synchronization across multiple development machines
+- Team-shared contexts
+- Project-level accessibility
+- Multi-machine synchronization
 
-### Analytics and Insights
-- Context utilization metrics for optimization
-- User behavior pattern analysis
-- Workflow efficiency improvements based on context usage
+### Analytics & Insights
+- Context utilization metrics
+- User pattern analysis
+- Efficiency improvements via usage data
 
-## Configuration Options
+## ⚙️ Configuration
 
 ```toml
 [context_management]
@@ -311,4 +312,4 @@ preserve_error_context_steps = 5
 importance_decay_factor = 0.9
 ```
 
-This context management system ensures that AI models receive optimal information for generating relevant, context-aware commands while maintaining performance and respecting user privacy preferences.
+This advanced context management ensures optimal model information for relevant, aware command generation while maintaining performance and privacy.

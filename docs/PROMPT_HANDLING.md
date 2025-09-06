@@ -1,36 +1,30 @@
 # Prompt Handling & Workflow Execution
 
-This document specifies how Parsec processes natural-language prompts (classified as `InputKind::Prompt`) into an interactive, stepwise execution workflow. This workflow system is only activated for prompt-classified inputs; shell-classified commands are executed directly within the session context without conversation or step management.
+## 🎯 Objectives
 
-The document covers the complete lifecycle, state machine design, trait definitions, model interactions, error handling, and future provider extensibility for AI-assisted multi-step workflows.
+Parsec orchestrates natural-language prompts (`InputKind::Prompt`) into deterministic, stepwise workflows. This isolates conversation management from command generation, ensuring auditable, resumable state with comprehensive history. Model-agnostic abstractions support Google AI Studio initially, with local/other providers planned. Direct shell commands bypass this entirely, maintaining session context only.
 
-## Objectives
-- Deterministic orchestration around inherently non-deterministic LLM output for prompt-classified inputs.
-- Clear separation of CONVERSATION (prompt session), WORKFLOW (logical plan), and COMMAND GENERATION (per-step execution).
-- Maintainable, resumable state with comprehensive auditable history.
-- Model-agnostic abstractions (Google AI Studio implementation first, with support for local and other APIs planned).
-- Direct shell command execution bypasses this system entirely, maintaining session context only.
+## 🔄 High-Level Process Flow
 
-## High-Level Process Flow
-1. The classifier marks user input as a prompt.
-2. Create or retrieve active `Session`, then create new `ConversationContext` with new `conversation_id` (ULID/UUIDv7), generate user-friendly conversation name, and store initial user prompt.
-3. Invoke `WorkflowPlanner` (model) with session context and conversation history to return ordered logical steps (structured JSON) with human descriptions only.
-4. Present complete plan to user with status indicator: `[<Conversation Name>] (Planning Complete)`.
-5. For each step in sequential order:
-   - Upon user continuation, call `StepCommandGenerator` with full conversation context, session history, and environment state.
-   - Receive candidate command(s) via structured JSON response and display primary candidate.
-   - User can approve, request alternative, or abort.
-   - Upon approval, executor runs command with result appended to context and session history.
-   - Repeat until step is satisfied (some steps may require multiple commands—model signals completion when none remain).
-6. Proceed to next step until all steps are complete or conversation is aborted.
-7. Persist transcript (future persistence layer).
+1. Classifier identifies input as prompt.
+2. Create/retrieve active `Session`, generate unique Conversation ID, user-friendly name, and initialize `ConversationContext`.
+3. Invoke `WorkflowPlanner` (Model Call #1) with session context and conversation history for ordered logical steps (structured JSON, no commands).
+4. Display complete workflow with status: `[<Conversation Name>] (Planning Complete)`.
+5. For each step sequentially:
+   - Upon user approval, call `StepCommandGenerator` (Model Call #2+) with full context (session state, conversation history, step index, prior executions, environment deltas, error states).
+   - Receive candidate commands via structured JSON; display primary option.
+   - User can approve, request alternatives, or abort.
+   - Approved commands execute via executor, updating conversation and session contexts.
+   - Repeat until step satisfied (multiple commands possible; model signals completion).
+6. Advance to next pending step until all complete or aborted.
+7. Persist transcript (future persistence).
 
-## State Machine
+## 🔄 State Machine
 
 **Conversation Status:** `Planning | Ready | InProgress | Finished | Aborted | Error`  
 **Step Status:** `Pending | CommandSuggested | Running | Complete | Failed | Skipped`
 
-**State Transitions:**
+**Transitions:**
 ```
 Start -> Planning -> Ready (plan received)
 Ready -> InProgress (user approves start)
@@ -43,7 +37,8 @@ All steps Complete -> Finished
 Model or parsing failure -> Error
 ```
 
-## Core Data Structures (Rust Implementation)
+## 🏗️ Core Data Structures
+
 ```rust
 pub struct Session {
     pub id: SessionId,
@@ -56,14 +51,14 @@ pub struct Session {
 pub struct ConversationContext {
     pub id: ConversationId,
     pub session_id: SessionId,
-    pub name: String, // user-friendly display name for the conversation
+    pub name: String, // user-friendly display name
     pub user_prompt: String,
-    pub workflow: WorkflowPlan, // populated after planning phase
+    pub workflow: WorkflowPlan, // populated after planning
     pub steps: Vec<WorkflowStepState>,
     pub status: ConversationStatus,
     pub history: Vec<ConversationEvent>,
     pub model_provider: ModelProviderId,
-    pub context_summary: ContextSummary, // key achievements and artifacts
+    pub context_summary: ContextSummary, // achievements and artifacts
 }
 
 pub struct WorkflowPlan { 
@@ -93,7 +88,8 @@ pub struct CommandAttempt {
 }
 ```
 
-## Trait Definitions
+## 🔧 Trait Definitions
+
 ```rust
 pub trait WorkflowPlanner {
     fn plan(&self, user_prompt: &str, session_context: &Session, opts: PlanningOptions) -> Result<WorkflowPlan, PlanError>;
@@ -110,14 +106,14 @@ pub trait ModelProvider: Send + Sync {
 }
 ```
 
-## Model Interactions
+## 🤖 Model Interactions
 
-The system employs two distinct prompt templates:
+Two distinct prompt templates:
 
 ### 1. Planning Prompt (WorkflowPlanner)
-**Objective:** Generate a JSON array of high-level steps without shell commands. Emphasizes idempotent, minimal, ordered steps with full session and conversation context awareness.
+**Objective:** Generate JSON array of high-level steps without commands. Emphasizes idempotent, minimal, ordered steps with full context awareness.
 
-**Context provided:**
+**Context Provided:**
 ```
 SYSTEM: You are an assistant that decomposes a user goal into a small ordered workflow of logical steps. DO NOT produce shell commands. Output strict JSON format only.
 SESSION_CONTEXT: <working directory, detected tools, project type, recent conversations>
@@ -126,10 +122,11 @@ USER_PROMPT: <raw user text>
 RESPONSE FORMAT (JSON): { "steps": [ { "description": "..." }, ... ] }
 CONSTRAINTS: 1-12 steps maximum. Each description should be 3-14 words, starting with an imperative verb.
 ```
-**Parser:** Strict JSON parsing with comprehensive error handling for malformed responses.
+**Parser:** Strict JSON parsing with comprehensive error handling.
 
 ### 2. Step Command Generation Prompt (StepCommandGenerator)
-**Objective:** Given comprehensive context including session state, conversation history, and current step, produce candidate shell commands or signal completion.
+**Objective:** Produce candidate shell commands or signal completion with comprehensive context.
+
 ```
 SYSTEM: You generate safe shell commands for the CURRENT step only.
 SECURITY: Avoid destructive commands unless explicitly required; NEVER use 'rm -rf /'. Ask for clarification if ambiguous.
@@ -143,28 +140,30 @@ OUTPUT FORMAT (JSON): { "commands": [ { "command": "...", "explanation": "..." }
 If step complete without command: { "commands": [], "done": true }
 ```
 
-**Validation rules:**
-- Reject commands containing unescaped newlines unless pipeline operations are required.
-- Issue soft warnings and require explicit user confirmation for dangerous patterns: `rm -rf`, `:(){:|:&};:`, `dd if=/dev/`.
-- Truncate displayed stdout/stderr beyond configurable size limit (X KB).
+**Validation Rules:**
+- Reject commands with unescaped newlines unless pipelines required.
+- Soft warnings for dangerous patterns: `rm -rf`, `:(){:|:&};:`, `dd if=/dev/`.
+- Truncate stdout/stderr beyond configurable limits (X KB).
 
-## Error Handling
+## 🚨 Error Handling
+
 | Failure Point | Strategy |
 |---------------|----------|
-| Planning timeout | Retry once with exponential backoff, otherwise surface PlanError and mark conversation as Error. |
-| Invalid planning JSON | Return PlanError with descriptive message indicating JSON parsing failure. |
-| Step generation invalid JSON | Return CommandGenError with descriptive message indicating JSON parsing failure. |
-| Command execution non-zero exit | Mark attempt as failed; offer: (a) retry same step (new command), (b) skip (if user chooses), (c) abort conversation. |
-| User abort | Mark conversation as `Aborted`; no further model calls. |
+| Planning timeout | Retry with exponential backoff, otherwise surface PlanError and mark as Error. |
+| Invalid planning JSON | Return PlanError with descriptive JSON parsing failure. |
+| Step generation invalid JSON | Return CommandGenError with descriptive parsing failure. |
+| Command execution non-zero exit | Mark failed; offer retry, skip, or abort. |
+| User abort | Mark `Aborted`; no further calls. |
 
-## Conversation Status Indicator
-The user interface displays a status line:
-`[Rust Project Setup] Step 2/5 (Pending) | Provider: google-ai | Next: Generate command`
+## 📊 Conversation Status Indicator
 
-This status updates after each state transition and helps maintain mental model context when switching between different conversations.
+UI displays: `[Rust Project Setup] Step 2/5 (Pending) | Provider: google-ai | Next: Generate command`
 
-## Persistence (Future Implementation)
-A pluggable `SessionStore` trait will be implemented for managing both sessions and conversations (currently in-memory; future implementations include SQLite/flat file storage). This will enable resuming conversations by persisting session state, conversation plans, and completed steps, then rehydrating context for remaining work.
+Updates after transitions, maintaining context when switching conversations.
+
+## 💾 Persistence (Future)
+
+Pluggable `SessionStore` for sessions and conversations (currently in-memory; future: SQLite/flat files). Enables resuming by persisting state and rehydrating context.
 
 ```rust
 pub trait SessionStore {
@@ -176,65 +175,68 @@ pub trait SessionStore {
 }
 ```
 
-## Extensibility and Multi-Provider Support
-`ModelProvider` registry keyed by identifier: `google-ai`, `local-llm`, etc. Configuration precedence:
-1. CLI flag or UI selection
-2. Environment variable `PARSEC_MODEL_PROVIDER`
-3. Configuration file `~/.config/parsec/config.toml`
+## 🔌 Extensibility & Multi-Provider Support
+
+`ModelProvider` registry by identifier: `google-ai`, `local-llm`, etc. Configuration precedence:
+1. CLI/UI selection
+2. Environment `PARSEC_MODEL_PROVIDER`
+3. Config file `~/.config/parsec/config.toml`
 4. Default: `google-ai`
 
-## Security Layer Enhancements (Planned)
-- Risk scoring system before user approval.
-- Automatic sandboxing for high-risk scores above threshold.
-- Red-team prompt injection filters (scan model outputs for disallowed tokens).
+## 🔒 Security Enhancements (Planned)
 
-## Minimal Example (Narrative)
-**User input:** "Initialize a new Rust crate with MIT license and run tests"
+- Risk scoring pre-approval.
+- Automatic sandboxing for high-risk scores.
+- Prompt injection filters on model outputs.
 
-**Planner JSON output:**
+## 📝 Minimal Example
+
+**User Input:** "Initialize a new Rust crate with MIT license and run tests"
+
+**Planner Output:**
 Steps:
 1. Create new cargo library project
 2. Add MIT license file
 3. Initialize git repository
 4. Run tests
 
-**Execution flow:**
-- Step 1 generation returns: `cargo new mylib --lib`
-- User approves → command executed successfully
-- Step 1 marked complete; Step 2 generation uses previous result (directory created)
-- Returns multi-candidate options with only first shown initially
-- Process continues through remaining steps
+**Execution:**
+- Step 1: `cargo new mylib --lib` → approved → executed
+- Step 1 complete; Step 2 uses prior results
+- Multi-candidate options, first shown
+- Continues through steps
 
-## Non-Goals (Current Scope)
+## 🚫 Non-Goals (Current)
+
 - Parallel step execution
-- Automatic rollback or transactional execution
+- Automatic rollback/transactional execution
 - Multi-user collaborative conversations
 
-## Open Questions
-- Should command alternatives be pre-fetched (N>1) versus on-demand? (Current approach: on-demand to maintain lower latency)
-- Where should rate limiting be enforced? (Likely at provider wrapper level)
+## ❓ Open Questions
 
-## Python Integration Architecture
+- Pre-fetch command alternatives (N>1) vs. on-demand? (Current: on-demand for latency)
+- Rate limiting enforcement? (Likely at provider wrapper)
 
-The `parsec-prompt` crate integrates with Python-based ML/LLM workflows while maintaining modularity and performance. This hybrid approach leverages the Python ML ecosystem for AI operations while keeping core system components in Rust.
+## 🐍 Python Integration Architecture
+
+`parsec-prompt` integrates Python ML/LLM workflows while maintaining modularity. Hybrid approach leverages Python ML ecosystem with Rust performance.
 
 ### Folder Structure
 ```
 crates/prompt/
 ├── Cargo.toml
 ├── src/
-│   └── lib.rs          # Rust API and glue code
+│   └── lib.rs          # Rust API and glue
 └── py/
-    ├── workflow.py     # ML/LLM workflow logic
-    ├── llm_api.py      # Google AI Studio API helpers
+    ├── workflow.py     # ML/LLM logic
+    ├── llm_api.py      # Google AI API helpers
     └── requirements.txt # Python dependencies
 ```
 
 ### Integration Methods
-The Rust code interfaces with Python through two primary methods:
 
 #### 1. PyO3 Embedding
-Direct embedding of Python interpreter within the Rust process for optimal performance:
+Direct embedding for optimal performance:
 
 ```rust
 use pyo3::prelude::*;
@@ -274,7 +276,7 @@ impl PythonWorkflowPlanner {
 ```
 
 #### 2. Subprocess Execution
-Process-based execution for environments requiring isolation:
+Process-based for isolation:
 
 ```rust
 use std::process::{Command, Stdio};
@@ -308,15 +310,15 @@ impl SubprocessWorkflowPlanner {
 ```
 
 ### API Design
-The `src/lib.rs` provides a clean Rust API that abstracts the Python integration details:
+`src/lib.rs` provides clean Rust API abstracting Python details:
 
 ```rust
-// Public API exposed to other crates
+// Public API for other crates
 pub trait WorkflowPlanner {
     fn plan(&self, user_prompt: &str, opts: PlanningOptions) -> Result<WorkflowPlan, PlanError>;
 }
 
-// Internal implementation wrapping Python code
+// Internal implementation wrapping Python
 pub struct ModelProvider {
     planner: Box<dyn WorkflowPlanner>,
     step_generator: Box<dyn StepCommandGenerator>,
@@ -335,25 +337,22 @@ impl ModelProvider {
 }
 ```
 
-### Benefits of This Architecture
+### Benefits
 
-1. **Modularity**: Python ML logic is isolated from core Rust systems, enabling independent updates and testing.
-
-2. **Flexibility**: Easy to swap between different LLM providers or local models by modifying Python scripts without Rust recompilation.
-
-3. **Performance**: PyO3 embedding maintains high terminal performance by avoiding subprocess overhead for frequent operations.
-
-4. **Ecosystem Access**: Leverages the rich Python ML ecosystem (transformers, langchain, etc.) while maintaining Rust's safety and performance for system operations.
-
-5. **Development Velocity**: Data scientists can iterate on ML logic in Python while systems engineers maintain core functionality in Rust.
+1. **Modularity**: Python ML isolated from Rust core, enabling independent updates.
+2. **Flexibility**: Swap providers by modifying Python scripts without Rust recompilation.
+3. **Performance**: PyO3 embedding avoids subprocess overhead.
+4. **Ecosystem Access**: Rich Python ML (transformers, langchain) with Rust safety.
+5. **Development Velocity**: Data scientists iterate in Python, engineers maintain Rust core.
 
 ### Error Handling
-The integration includes comprehensive error handling for common failure modes:
+Comprehensive for:
 - Python import errors
-- JSON serialization/deserialization failures
-- API rate limiting and network errors
+- JSON serialization failures
+- API rate limiting/network errors
 - Model inference timeouts
 
-## Summary
-The prompt handling system separates planning from execution phases. Clear state management, strict JSON interfaces, and pluggable provider architecture ensure the system can evolve from Google AI Studio to local LLMs without requiring rework of the UI or executor components. The Python integration layer provides flexible access to ML/LLM capabilities while maintaining the performance and reliability characteristics of the core Rust system.
+## 📋 Summary
+
+Prompt handling separates planning from execution. Clear state management, strict JSON interfaces, and pluggable providers ensure evolution from Google AI to local LLMs without UI/executor rework. Python integration provides flexible ML access while maintaining Rust performance and reliability.
 

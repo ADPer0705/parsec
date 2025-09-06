@@ -1,19 +1,23 @@
-# Security Notes (Early Draft)
+# Security Notes
 
-## Principles
-- **Least Surprise:** Always display exactly what will be executed.
-- **Explicit Consent:** No automatic execution of AI suggestions.
-- **Isolation (Future):** Namespaced/sandboxed execution for high-risk commands.
+## 🛡️ Principles
 
-## Threat Model
-- Prompt injection attacks causing destructive command generation.
-- Model hallucination producing dangerous operations (rm / destructive commands).
-- Secret leakage through command echo and logging.
+- **Least Surprise:** Always display exact commands for execution.
+- **Explicit Consent:** Zero auto-execution of AI suggestions.
+- **Isolation (Future):** Sandboxed/namespaced execution for high-risk commands.
 
-## Near-Term Mitigations
-- Mandatory manual approval step for all generated commands.
-- Warning banner if command matches destructive patterns (e.g., `rm -rf /`).
+## 🎯 Threat Model
 
-## Future Work
-- Static risk scoring system for commands.
+- Prompt injection attacks producing destructive commands.
+- Model hallucinations generating dangerous operations (e.g., `rm /`).
+- Secret leakage through command echoes and logging.
+
+## 🚨 Near-Term Mitigations
+
+- Mandatory approval for all generated commands.
+- Warning banners for destructive patterns (e.g., `rm -rf /`).
+
+## 🔮 Future Work
+
+- Static risk scoring for commands.
 - Dry-run simulation support (git, cargo, etc.) where available.

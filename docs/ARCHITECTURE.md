@@ -1,103 +1,75 @@
-# Architecture
+# Architecture Overview
 
-## Overview
-Parsec mediates between user input and two distinct execution paths based on classification: direct shell execution for shell commands, or AI-assisted multi-step workflow planning for natural language prompts. A classifier determines which path to take; AI-suggested commands require explicit user approval. Prompt handling operates through two distinct layers: (1) workflow planning (logical steps) and (2) per-step command synthesis and execution.
+## 🔍 System Overview
 
-```
- ┌────────┐   raw text   ┌─────────────┐  kind    ┌─────────────┐  shell cmd      ┌──────────┐
- │  User  │ ───────────▶ │ Classifier  │ ───────▶ │  Dispatcher │ ───────────────▶│ Executor │
- └────────┘               └─────────────┘          └─────────────┘                 └──────────┘
-                                        │                                  output / errors ▲
-                                        │ prompt → conversation creation             │
-                                        ▼                                              │
-                                   ┌────────┐ workflow (logical steps)  ┌───────────┐  approve step  ┌──────────┐
-                                   │ Model  │──────────────────────────▶│ UI Review │──────────────▶│ Executor │
-                                   └────────┘                            └───────────┘                └──────────┘
-                                                                              ▲  per-step command synthesis │
-                                                                              └─────────────┬──────────────┘
-                                                                                            │
-                                                                                            ▼
-                                                                                       ┌────────┐
-                                                                                       │ Model  │ (command for current step)
-                                                                                       └────────┘
+Parsec orchestrates a sophisticated dual-path execution model, intelligently routing user inputs through either direct shell execution or AI-powered multi-step workflow planning. At its core, an advanced classifier discerns input intent, ensuring AI-generated commands undergo rigorous user approval. The prompt handling pipeline operates in two distinct phases: high-level workflow planning (pure logic, no commands) and granular per-step command synthesis.
+
+```mermaid
+flowchart TD
+    A[User] -->|"raw text"| B[Classifier]
+    B -->|"kind"| C[Dispatcher]
+    C -->|"shell cmd"| D[Executor]
+    D -->|"output / errors"| A
+    
+    B -->|"prompt → conversation creation"| E[Model]
+    E -->|"workflow (logical steps)"| F[UI Review]
+    F -->|"approve step"| D
+    
+    F -->|"per-step command synthesis"| G[Model]
+    G -->|"command for current step"| F
 ```
 
-## Crates
-| Crate | Responsibility |
-|-------|----------------|
-| `parsec-core` | Domain types & traits (`CommandClassifier`, `ModelProvider`, `WorkflowPlanner`, `StepCommandGenerator`, `ExecutionPlan`, `ConversationContext`). |
-| `parsec-model` | Implementations of `ModelProvider` (Google AI Studio first; pluggable later). |
-| `parsec-executor` | Safe step/command execution (approval gate, future sandbox). |
-| `parsec-prompt` | Orchestrates prompt → workflow planning then per-step command generation using core traits. Integrates with Python ML/LLM code via PyO3 or subprocess execution. Python files located in `py/` subdirectory for ML workflow logic and API helpers. |
-| `parsec-classifier` | Embedded Python logic for classification using machine learning models. |
-| `parsec-ui` | User interaction loop / future GUI. |c mediates between user input and two possible execution paths: direct shell execution or AI-assisted multi-step workflow planning. A classifier determines which path to take; AI-suggested commands require explicit user approval. Prompt handling operates through two distinct layers: (1) workflow planning (logical steps) and (2) per-step command synthesis and execution.
+## 🏗️ Modular Crate Architecture
 
-```
- ┌────────┐   raw text   ┌─────────────┐  kind    ┌─────────────┐  approved cmds  ┌──────────┐
- │  User  │ ───────────▶ │ Classifier  │ ───────▶ │  Dispatcher │ ───────────────▶│ Executor │
- └────────┘               └─────────────┘          └─────────────┘                 └──────────┘
-                                        │                                  output / errors ▲
-                                        │ model prompt / plan                          │
-                                        ▼                                              │
-                                   ┌────────┐ workflow (logical steps)  ┌───────────┐  approve step  ┌──────────┐
-                                   │ Model  │──────────────────────────▶│ UI Review │──────────────▶│ Executor │
-                                   └────────┘                            └───────────┘                └──────────┘
-                                                                              ▲  per-step command synthesis │
-                                                                              └─────────────┬──────────────┘
-                                                                                            │
-                                                                                            ▼
-                                                                                       ┌────────┐
-                                                                                       │ Model  │ (command for current step)
-                                                                                       └────────┘
-```
+| Crate | Core Responsibilities |
+|-------|----------------------|
+| `parsec-core` | Defines domain entities and trait abstractions (`CommandClassifier`, `ModelProvider`, `WorkflowPlanner`, `StepCommandGenerator`, `ExecutionPlan`, `ConversationContext`). |
+| `parsec-model` | Implements `ModelProvider` interfaces (initially Google AI Studio; designed for pluggability). |
+| `parsec-executor` | Manages secure command execution with approval mechanisms and future sandboxing capabilities. |
+| `parsec-prompt` | Orchestrates end-to-end prompt processing: workflow planning to per-step command generation. Integrates Python ML/LLM components via PyO3 or subprocess. Python assets reside in `py/` for isolated ML logic and API interactions. |
+| `parsec-classifier` | Embedded Python ML classifiers for precise input categorization. |
+| `parsec-ui` | Handles user interaction loops and future graphical interfaces. |
 
-## Crates
-| Crate | Responsibility |
-|-------|----------------|
-| `parsec-core` | Domain types & traits (`Session`, `CommandClassifier`, `ModelProvider`, `WorkflowPlanner`, `StepCommandGenerator`, `ExecutionPlan`, `ConversationContext`). |
-| `parsec-model` | Implementations of `ModelProvider` (Google AI Studio first; pluggable later). |
-| `parsec-executor` | Safe step/command execution (approval gate, future sandbox). |
-| `parsec-prompt` | Orchestrates prompt -> workflow planning then per‑step command generation using core traits. |
-| `parsec-classifier` | Embedded Python logic for classification (pluggable). |
-| `parsec-ui` | User interaction loop / future GUI. |
+## 🔄 Data Flow Patterns
 
-## Data Flow
+### Shell Command Execution Path
+1. User submits textual input.
+2. Classifier identifies as `InputKind::Shell`.
+3. System activates or initializes session context.
+4. Command executes directly within session environment.
+5. Captures and logs execution results (stdout/stderr, exit codes) in session history.
+6. Updates global session state (working directory, environment variables).
 
-### Shell Command Path (Shell-Classified Input)
-1. User enters text input.
-2. Classifier returns `InputKind::Shell`.
-3. System retrieves or creates active session.
-4. Command is executed directly within session context.
-5. Execution results (stdout/stderr, exit code) are recorded in session command history.
-6. Session global context is updated (working directory, environment changes if any).
+### AI Workflow Path
+1. User submits textual input.
+2. Classifier identifies as `InputKind::Prompt`.
+3. System establishes session, generates unique Conversation ID, and initializes `ConversationContext`.
+4. UI invokes `WorkflowPlanner` (Model Call #1) with session and conversation context, yielding logical steps only.
+5. UI presents full workflow with active conversation indicator: `[<Conversation Name>] active`.
+6. For current pending step: Upon user approval, UI calls `StepCommandGenerator` (Model Call #2+) with comprehensive context (session state, conversation history, step index, prior executions, environment deltas, error states).
+7. Model returns structured JSON with candidate commands. UI displays primary option; user can approve, request alternatives, or abort.
+8. Approved commands execute via executor, with outputs updating conversation and session contexts.
+9. Iterates steps 7-8 until step completion; advances to next pending step.
+10. On errors: Captures details, appends to context, relays to model for retry/alternatives. Aborts on unrecoverable failures.
+11. Completion: All steps finished, conversation finalized, session updated with outcomes.
 
-### Prompt Path (Prompt-Classified Input)
-1. User enters text input.
-2. Classifier returns `InputKind::Prompt`.
-3. System retrieves or creates active session, generates new Conversation ID and user-friendly name, then initializes `ConversationContext` within the session.
-4. UI requests a workflow plan from `WorkflowPlanner` (model call #1) with session context and conversation history, returning logical steps only (no shell commands yet).
-5. UI displays complete workflow (all steps) and shows indicator: "[<Conversation Name>] active".
-6. For the CURRENT step (status = Pending): when user approves continuation, UI invokes `StepCommandGenerator` (model call #2+) with comprehensive context including: session state, conversation history, current step index, prior executed steps, environment changes, and any errors encountered.
-7. Model returns candidate commands for that step via structured JSON response. UI shows primary option; user can (a) approve and run, (b) request alternative, or (c) abort conversation.
-8. Upon approval, executor runs the command with stdout/stderr captured and updates both conversation and session context.
-9. If successful and step has more commands remaining, repeat steps 7-8; otherwise mark step as Complete and advance to next Pending step.
-10. If a command encounters errors: executor emits error information; error is appended to conversation and session context, then forwarded back to model on retry/alternative request. If unrecoverable (user chooses abort or model signals stop), conversation ends with partial completion.
-11. When all steps are Complete, conversation status becomes Finished and session context is updated with achievements.
+Refer to `PROMPT_HANDLING.md` for detailed state machines and data structures.
 
-See `PROMPT_HANDLING.md` for detailed state machine specifications and data structures.
+## 🧠 Classification Strategy
 
-## Classification Strategy (Current Implementation)
-Primary approach: embedded Python implementation utilizing machine learning models for accurate natural language detection and command classification. The system employs structured JSON communication between Rust and Python components for reliable data exchange.
+**Current Implementation**: Embedded Python with ML models for robust natural language processing. Utilizes structured JSON protocols for reliable Rust-Python interop.
 
-## Security Considerations (Early Implementation)
-- Never auto-execute model output without user approval.
-- Display complete command line before execution.
-- Log all executions (future enhancement: redact secrets heuristically).
+## 🔒 Security Foundations
 
-## Extensibility
-Trait-based architecture allows swapping classifier and model implementations without affecting UI/executor components. Planning and command synthesis are separated, enabling future scenarios where local/offline models can generate commands while remote models supply only high-level workflow (hybrid mode). A `ModelProvider` registry will allow runtime provider selection (configuration file, environment variable, or UI toggle).
+- **Zero Auto-Execution**: All model outputs require explicit user consent.
+- **Command Transparency**: Full command preview prior to execution.
+- **Audit Logging**: Comprehensive execution records (future: intelligent secret redaction).
 
-The `parsec-prompt` crate's Python integration provides additional flexibility by isolating ML/LLM logic in Python scripts (located in `py/` subdirectory) while maintaining Rust performance for core operations. This hybrid approach enables rapid iteration on AI models and API integrations without requiring Rust recompilation, while leveraging the Python ML ecosystem for advanced capabilities.
+## 🔌 Extensibility & Modularity
+
+Trait-driven architecture enables seamless component swapping without disrupting UI or execution layers. Decoupled planning and synthesis supports hybrid scenarios (e.g., local models for commands, remote for planning). `ModelProvider` registry facilitates runtime configuration via files, environment variables, or UI controls.
+
+The `parsec-prompt` crate's Python integration isolates ML/LLM logic in dedicated scripts (`py/` subdirectory), enabling rapid AI iteration without Rust recompilation while harnessing Python's ML ecosystem.
 
 ## Future GUI Implementation
 Phase 1 implements TUI (crossterm). Future phases: native window interface (egui or GTK) with embedded pty support.
