@@ -1,0 +1,13 @@
+[package]
+name = "parsec-prompt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parsec-core = { path = "../core" }
+parsec-model = { path = "../model" }
+parsec-executor = { path = "../executor" }
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1.0"
+anyhow = "1.0"
